@@ -1,7 +1,9 @@
 import http from "node:http";
 import { URL } from "node:url";
+import crypto from "node:crypto";
 import { Queue, Worker } from "bullmq";
 import { Redis } from "ioredis";
+import { Server as SocketIOServer } from "socket.io";
 
 import {
   GLOBAL_TABLES,
@@ -76,6 +78,18 @@ async function readJsonBody(
   return JSON.parse(raw) as RequestBody;
 }
 
+async function readRawBody(
+  request: http.IncomingMessage,
+): Promise<string> {
+  const chunks: Buffer[] = [];
+
+  for await (const chunk of request) {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  }
+
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
@@ -125,6 +139,8 @@ export async function startNodeServer(
   let worker: Worker | undefined;
   let monitoringIntervalId: NodeJS.Timeout | undefined;
   let redisClient: Redis | undefined;
+  let io: SocketIOServer | undefined;
+  let broadcastBranchEvent: (branchSlug: string, eventName: string, payload: unknown) => void = () => {};
 
   if (config.redisUrl) {
     redisClient = new Redis(config.redisUrl);
@@ -344,6 +360,32 @@ export async function startNodeServer(
 
     return branch.id;
   }
+
+  io = new SocketIOServer({
+    cors: {
+      origin: "*",
+      methods: ["GET", "POST"],
+    },
+  });
+
+  io.on("connection", (socket) => {
+    const branchSlug = socket.handshake.query.branchSlug as string || config.branchSlug;
+    const roomName = `branch:${branchSlug}`;
+    void socket.join(roomName);
+    console.log(`[${config.nodeName}] Socket connected: ${socket.id}, joined room: ${roomName}`);
+
+    socket.on("disconnect", () => {
+      console.log(`[${config.nodeName}] Socket disconnected: ${socket.id}`);
+    });
+  });
+
+  broadcastBranchEvent = (branchSlug: string, eventName: string, payload: unknown) => {
+    if (io) {
+      const roomName = `branch:${branchSlug}`;
+      io.to(roomName).emit(eventName, payload);
+      console.log(`[${config.nodeName}] Broadcasted event '${eventName}' to room '${roomName}'`);
+    }
+  };
 
   const server = http.createServer(async (request, response) => {
     const requestUrl = new URL(
@@ -578,6 +620,9 @@ export async function startNodeServer(
 
           return createdOrder;
         });
+
+        // Broadcast WebSocket event
+        broadcastBranchEvent(config.branchSlug, "order_created", { order });
 
         sendJson(response, 201, { order });
         return;
@@ -826,6 +871,224 @@ export async function startNodeServer(
         return;
       }
 
+      if (
+        requestUrl.pathname === "/db/local/payments" &&
+        (request.method ?? "GET") === "POST"
+      ) {
+        const body = await readJsonBody(request);
+        const orderId = asString(body.orderId);
+
+        if (!orderId) {
+          sendJson(response, 400, { error: "orderId is required." });
+          return;
+        }
+
+        const branchId = await resolveBranchId();
+        const order = await prisma.order.findUnique({
+          where: { id: orderId },
+          include: { payment: true },
+        });
+
+        if (!order) {
+          sendJson(response, 404, { error: "Order not found." });
+          return;
+        }
+
+        if (order.branchId !== branchId) {
+          sendJson(response, 403, { error: "Order does not belong to this branch." });
+          return;
+        }
+
+        if (order.payment) {
+          if (order.payment.status === "PAID") {
+            sendJson(response, 400, { error: "Order is already paid." });
+            return;
+          }
+          const mockQrisData = `00020101021226640014ID.CO.QRIS.WWW0215ID10202607031120303035504000053033605405${Math.round(Number(order.grandTotal))}5802ID5913Letter Coffee6007Jakarta6304`;
+          const qrisUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(mockQrisData)}`;
+          sendJson(response, 200, {
+            payment: order.payment,
+            qrisUrl,
+            qrisData: mockQrisData,
+          });
+          return;
+        }
+
+        const mockQrisData = `00020101021226640014ID.CO.QRIS.WWW0215ID10202607031120303035504000053033605405${Math.round(Number(order.grandTotal))}5802ID5913Letter Coffee6007Jakarta6304`;
+        const qrisUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(mockQrisData)}`;
+
+        const payment = await prisma.payment.create({
+          data: {
+            orderId,
+            method: "QRIS",
+            amount: order.grandTotal,
+            status: "PENDING",
+            externalRef: `MOCK-REF-${Date.now()}`,
+          },
+        });
+
+        sendJson(response, 201, {
+          payment,
+          qrisUrl,
+          qrisData: mockQrisData,
+        });
+        return;
+      }
+
+      if (
+        requestUrl.pathname === "/api/webhooks/payment" &&
+        (request.method ?? "GET") === "POST"
+      ) {
+        const rawBody = await readRawBody(request);
+        const body = JSON.parse(rawBody);
+
+        const orderId = asString(body.orderId);
+        const status = asString(body.status);
+        const externalRef = asString(body.externalRef);
+
+        if (!orderId || !status) {
+          sendJson(response, 400, { error: "orderId and status are required." });
+          return;
+        }
+
+        const signature = request.headers["x-callback-signature"];
+        const secretKey = process.env.PAYMENT_WEBHOOK_SECRET || "lc_secret_key";
+        const expectedSignature = crypto
+          .createHmac("sha512", secretKey)
+          .update(rawBody)
+          .digest("hex");
+
+        if (signature !== expectedSignature) {
+          sendJson(response, 401, { error: "Invalid HMAC-SHA512 webhook signature." });
+          return;
+        }
+
+        const branchId = await resolveBranchId();
+        const order = await prisma.order.findUnique({
+          where: { id: orderId },
+          include: { payment: true },
+        });
+
+        if (!order) {
+          sendJson(response, 404, { error: "Order not found." });
+          return;
+        }
+
+        if (order.branchId !== branchId) {
+          sendJson(response, 403, { error: "Order does not belong to this branch." });
+          return;
+        }
+
+        if (!order.payment) {
+          sendJson(response, 400, { error: "Payment not initialized for this order." });
+          return;
+        }
+
+        if (order.payment.status === "PAID") {
+          sendJson(response, 200, { ok: true, message: "Payment was already processed as PAID." });
+          return;
+        }
+
+        const isPaid = status === "PAID";
+        const updatedPayment = await prisma.payment.update({
+          where: { id: order.payment.id },
+          data: {
+            status: isPaid ? "PAID" : "FAILED",
+            externalRef: externalRef ?? order.payment.externalRef,
+            paidAt: isPaid ? new Date() : null,
+          },
+        });
+
+        const updatedOrder = await prisma.order.update({
+          where: { id: orderId },
+          data: {
+            status: isPaid ? "CONFIRMED" : "PENDING",
+          },
+        });
+
+        if (isPaid) {
+          broadcastBranchEvent(config.branchSlug, "order_paid", {
+            orderId,
+            status: "CONFIRMED",
+          });
+          broadcastBranchEvent(config.branchSlug, "payment_confirmed", {
+            orderId,
+            status: "PAID",
+            paymentId: updatedPayment.id,
+          });
+        }
+
+        sendJson(response, 200, {
+          ok: true,
+          message: "Payment processed successfully.",
+          paymentStatus: updatedPayment.status,
+          orderStatus: updatedOrder.status,
+        });
+        return;
+      }
+
+      if (
+        requestUrl.pathname === "/db/local/orders/status" &&
+        (request.method ?? "GET") === "POST"
+      ) {
+        const body = await readJsonBody(request);
+        const orderId = asString(body.orderId);
+        const status = asString(body.status);
+
+        if (!orderId || !status) {
+          sendJson(response, 400, { error: "orderId and status are required." });
+          return;
+        }
+
+        const validStatuses = [
+          "PENDING",
+          "CONFIRMED",
+          "PREPARING",
+          "READY",
+          "SERVED",
+          "COMPLETED",
+          "CANCELLED",
+        ];
+        if (!validStatuses.includes(status)) {
+          sendJson(response, 400, { error: `Invalid status. Must be one of: ${validStatuses.join(", ")}` });
+          return;
+        }
+
+        const branchId = await resolveBranchId();
+        const order = await prisma.order.findUnique({
+          where: { id: orderId },
+        });
+
+        if (!order) {
+          sendJson(response, 404, { error: "Order not found." });
+          return;
+        }
+
+        if (order.branchId !== branchId) {
+          sendJson(response, 403, { error: "Order does not belong to this branch." });
+          return;
+        }
+
+        const updatedOrder = await prisma.order.update({
+          where: { id: orderId },
+          data: {
+            status: status as any,
+            completedAt: status === "COMPLETED" ? new Date() : order.completedAt,
+          },
+        });
+
+        broadcastBranchEvent(config.branchSlug, "order_status_updated", {
+          orderId,
+          status: updatedOrder.status,
+        });
+
+        sendJson(response, 200, {
+          ok: true,
+          order: updatedOrder,
+        });
+        return;
+      }
+
       if (requestUrl.pathname === "/admin/global/write-test") {
         sendJson(response, 200, {
           ok: true,
@@ -864,6 +1127,9 @@ export async function startNodeServer(
     if (redisClient) {
       try { await redisClient.quit(); } catch (e) {}
     }
+    if (io) {
+      try { io.close(); } catch (e) {}
+    }
     await prisma.$disconnect();
     server.close();
   };
@@ -873,6 +1139,7 @@ export async function startNodeServer(
     if (worker) { void worker.close(); }
     if (queue) { void queue.close(); }
     if (redisClient) { void redisClient.quit(); }
+    if (io) { void io.close(); }
     void prisma.$disconnect();
   });
 
@@ -883,6 +1150,10 @@ export async function startNodeServer(
   process.on("SIGTERM", () => {
     void shutdown();
   });
+
+  if (io) {
+    io.attach(server);
+  }
 
   await new Promise<void>((resolve) => {
     server.listen(config.port, resolve);

@@ -58,7 +58,7 @@ def main():
     print("Triggering dummy update to refresh last_msg_receipt_time on subscribers...")
     exec_psql("db-pusat", "UPDATE branches SET updated_at = now() WHERE code = 'tasikmalaya';")
     time.sleep(1) # Allow 1 second for propagation
-
+    
     # Check lag
     limits = {"db-tasikmalaya": 3.0, "db-surabaya": 5.0}
     for service, limit in limits.items():
