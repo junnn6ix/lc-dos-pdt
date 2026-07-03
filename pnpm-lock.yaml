@@ -27,6 +27,15 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
+  apps/api-malang:
+    dependencies:
+      '@lcdos/server-core':
+        specifier: workspace:*
+        version: link:../../packages/server-core
+      '@lcdos/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+
   apps/api-pusat:
     dependencies:
       '@lcdos/server-core':

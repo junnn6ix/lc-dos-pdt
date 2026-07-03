@@ -18,9 +18,10 @@ export const LOCAL_TABLES = [
 export const REPLICATION_LAG_ALERT_SECONDS = {
   tasikmalaya: 3,
   surabaya: 5,
+  malang: 5,
 } as const;
 
-export type BranchSlug = "tasikmalaya" | "surabaya";
+export type BranchSlug = "tasikmalaya" | "surabaya" | "malang";
 export type NodeRole = "central" | "branch";
 
 export function resolveEffectiveMenuPrice(

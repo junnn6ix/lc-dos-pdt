@@ -597,7 +597,7 @@ export async function startNodeServer(
         );
         const tax = Math.round(subtotal * 0.11 * 100) / 100;
         const grandTotal = subtotal + tax;
-        const orderNumber = `ORD-${Date.now()}`;
+        const orderNumber = `ORD-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
         const order = await prisma.$transaction(async (transaction) => {
           const createdOrder = await transaction.order.create({
@@ -665,6 +665,30 @@ export async function startNodeServer(
         });
 
         sendJson(response, 201, { override });
+        return;
+      }
+
+      if (
+        requestUrl.pathname === "/db/local/menu-price-overrides" &&
+        (request.method ?? "GET") === "DELETE"
+      ) {
+        const body = await readJsonBody(request);
+        const menuId = asString(body.menuId);
+
+        if (!menuId) {
+          sendJson(response, 400, { error: "menuId is required." });
+          return;
+        }
+
+        const branchId = await resolveBranchId();
+        await prisma.menuPriceOverride.deleteMany({
+          where: {
+            branchId,
+            menuId,
+          },
+        });
+
+        sendJson(response, 200, { ok: true, message: "Price override deleted." });
         return;
       }
 

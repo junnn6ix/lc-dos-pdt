@@ -55,6 +55,33 @@ services:
       - db_tasikmalaya_data:/var/lib/postgresql/data
       - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
 
+  db-malang:
+    image: postgres:16
+    container_name: lc-dos-db-malang
+    environment:
+      POSTGRES_DB: lettercoffee
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    command:
+      - postgres
+      - -c
+      - listen_addresses=*
+      - -c
+      - max_replication_slots=10
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_logical_replication_workers=10
+      - -c
+      - max_worker_processes=20
+      - -c
+      - lc.node_role=branch
+    ports:
+      - "5435:5432"
+    volumes:
+      - db_malang_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+
   db-surabaya:
     image: postgres:16
     container_name: lc-dos-db-surabaya
@@ -91,6 +118,15 @@ services:
     volumes:
       - redis_tasikmalaya_data:/data
 
+  redis-malang:
+    image: redis:7-alpine
+    container_name: lc-dos-redis-malang
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6381:6379"
+    volumes:
+      - redis_malang_data:/data
+
   redis-surabaya:
     image: redis:7-alpine
     container_name: lc-dos-redis-surabaya
@@ -106,3 +142,6 @@ volumes:
   db_surabaya_data:
   redis_tasikmalaya_data:
   redis_surabaya_data:
+  db_malang_data:
+  redis_malang_data:
+
