@@ -1,0 +1,14 @@
+{
+  "name": "@lcdos/api-surabaya",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@lcdos/server-core": "workspace:*",
+    "@lcdos/shared": "workspace:*"
+  }
+}

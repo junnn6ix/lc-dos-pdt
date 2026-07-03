@@ -1,0 +1,108 @@
+services:
+  db-pusat:
+    image: postgres:16
+    container_name: lc-dos-db-pusat
+    environment:
+      POSTGRES_DB: lettercoffee
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    command:
+      - postgres
+      - -c
+      - listen_addresses=*
+      - -c
+      - wal_level=logical
+      - -c
+      - max_replication_slots=10
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_logical_replication_workers=10
+      - -c
+      - max_worker_processes=20
+      - -c
+      - lc.node_role=central
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_pusat_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+
+  db-tasikmalaya:
+    image: postgres:16
+    container_name: lc-dos-db-tasikmalaya
+    environment:
+      POSTGRES_DB: lettercoffee
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    command:
+      - postgres
+      - -c
+      - listen_addresses=*
+      - -c
+      - max_replication_slots=10
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_logical_replication_workers=10
+      - -c
+      - max_worker_processes=20
+      - -c
+      - lc.node_role=branch
+    ports:
+      - "5433:5432"
+    volumes:
+      - db_tasikmalaya_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+
+  db-surabaya:
+    image: postgres:16
+    container_name: lc-dos-db-surabaya
+    environment:
+      POSTGRES_DB: lettercoffee
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    command:
+      - postgres
+      - -c
+      - listen_addresses=*
+      - -c
+      - max_replication_slots=10
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_logical_replication_workers=10
+      - -c
+      - max_worker_processes=20
+      - -c
+      - lc.node_role=branch
+    ports:
+      - "5434:5432"
+    volumes:
+      - db_surabaya_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+
+  redis-tasikmalaya:
+    image: redis:7-alpine
+    container_name: lc-dos-redis-tasikmalaya
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_tasikmalaya_data:/data
+
+  redis-surabaya:
+    image: redis:7-alpine
+    container_name: lc-dos-redis-surabaya
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_surabaya_data:/data
+
+volumes:
+  db_pusat_data:
+  db_tasikmalaya_data:
+  db_surabaya_data:
+  redis_tasikmalaya_data:
+  redis_surabaya_data:

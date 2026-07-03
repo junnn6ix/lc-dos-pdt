@@ -1,0 +1,8 @@
+-- CREATE SUBSCRIPTION cannot run inside DO/transaction blocks.
+-- The shell bootstrap script expands the target node and executes it directly.
+--
+-- Example for db-tasikmalaya:
+-- CREATE SUBSCRIPTION lc_tasikmalaya_sub
+--   CONNECTION 'host=db-pusat port=5432 dbname=lettercoffee user=lc_replicator password=lc_replicator_dev'
+--   PUBLICATION lc_global_pub
+--   WITH (copy_data = true);

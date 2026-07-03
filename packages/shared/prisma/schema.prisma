@@ -1,0 +1,277 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum BranchStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum MenuAvailability {
+  AVAILABLE
+  HIDDEN
+  SOLD_OUT
+}
+
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+  OUT_OF_SERVICE
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  READY
+  SERVED
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  QRIS
+  CARD
+  TRANSFER
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum ReportSource {
+  REST_SYNC
+  MANUAL_FIX
+}
+
+model Branch {
+  id             String              @id @default(uuid()) @db.Uuid
+  code           String              @unique @db.VarChar(32)
+  name           String              @db.VarChar(120)
+  city           String              @db.VarChar(80)
+  status         BranchStatus        @default(ACTIVE)
+  timezone       String              @default("Asia/Jakarta") @db.VarChar(64)
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tables         DiningTable[]
+  users          User[]
+  orders         Order[]
+  priceOverrides  MenuPriceOverride[]
+  reportRows     DailyReportAggregate[]
+
+  @@map("branches")
+}
+
+model Category {
+  id         String   @id @default(uuid()) @db.Uuid
+  slug       String   @unique @db.VarChar(80)
+  name       String   @db.VarChar(120)
+  sortOrder  Int      @default(0) @map("sort_order")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  menus      Menu[]
+
+  @@map("categories")
+}
+
+model Menu {
+  id            String            @id @default(uuid()) @db.Uuid
+  categoryId    String            @map("category_id") @db.Uuid
+  sku           String            @unique @db.VarChar(64)
+  name          String            @db.VarChar(160)
+  description   String?           @db.Text
+  imageUrl      String?           @map("image_url") @db.Text
+  availability  MenuAvailability   @default(AVAILABLE)
+  isFeatured    Boolean           @default(false) @map("is_featured")
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  category      Category          @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  priceMaster   MenuPriceMaster?
+  orderItems    OrderItem[]
+  priceOverrides MenuPriceOverride[]
+
+  @@index([categoryId])
+  @@map("menus")
+}
+
+model MenuPriceMaster {
+  menuId     String   @id @map("menu_id") @db.Uuid
+  basePrice  Decimal  @map("base_price") @db.Decimal(10, 2)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  menu       Menu     @relation(fields: [menuId], references: [id], onDelete: Cascade)
+
+  @@map("menu_prices_master")
+}
+
+model Promotion {
+  id            String   @id @default(uuid()) @db.Uuid
+  code          String   @unique @db.VarChar(64)
+  title         String   @db.VarChar(120)
+  description   String?  @db.Text
+  discountType  String   @map("discount_type") @db.VarChar(32)
+  discountValue Decimal  @map("discount_value") @db.Decimal(10, 2)
+  startsAt      DateTime @map("starts_at") @db.Timestamptz(6)
+  endsAt        DateTime @map("ends_at") @db.Timestamptz(6)
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("promotions")
+}
+
+model DiningTable {
+  id          String      @id @default(uuid()) @db.Uuid
+  branchId    String      @map("branch_id") @db.Uuid
+  tableNumber String      @map("table_number") @db.VarChar(32)
+  qrCode      String      @unique @map("qr_code") @db.VarChar(120)
+  status      TableStatus @default(AVAILABLE)
+  seatCount   Int         @default(4) @map("seat_count")
+  notes       String?     @db.Text
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  branch      Branch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  orders      Order[]
+
+  @@unique([branchId, tableNumber])
+  @@index([branchId])
+  @@map("tables")
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  branchId     String?  @map("branch_id") @db.Uuid
+  fullName     String   @map("full_name") @db.VarChar(160)
+  email        String?  @unique @db.VarChar(160)
+  passwordHash String?  @map("password_hash") @db.Text
+  role         String   @db.VarChar(40)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  branch       Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  createdOrders Order[] @relation("OrderCreatedBy")
+  priceOverrides MenuPriceOverride[] @relation("PriceOverrideSetBy")
+
+  @@index([branchId])
+  @@map("users")
+}
+
+model Order {
+  id          String      @id @default(uuid()) @db.Uuid
+  branchId    String      @map("branch_id") @db.Uuid
+  tableId     String      @map("table_id") @db.Uuid
+  createdById String?     @map("created_by_id") @db.Uuid
+  orderNumber String      @unique @map("order_number") @db.VarChar(64)
+  status      OrderStatus @default(PENDING)
+  notes       String?     @db.Text
+  subtotal    Decimal     @default(0) @db.Decimal(12, 2)
+  discount    Decimal     @default(0) @db.Decimal(12, 2)
+  tax         Decimal     @default(0) @db.Decimal(12, 2)
+  grandTotal  Decimal     @map("grand_total") @db.Decimal(12, 2)
+  orderedAt   DateTime    @default(now()) @map("ordered_at") @db.Timestamptz(6)
+  completedAt DateTime?   @map("completed_at") @db.Timestamptz(6)
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  branch      Branch      @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  table       DiningTable @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  createdBy   User?       @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  items       OrderItem[]
+  payment     Payment?
+
+  @@index([branchId])
+  @@index([tableId])
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String   @id @default(uuid()) @db.Uuid
+  orderId     String   @map("order_id") @db.Uuid
+  menuId      String   @map("menu_id") @db.Uuid
+  quantity    Int
+  unitPrice   Decimal  @map("unit_price") @db.Decimal(10, 2)
+  lineTotal   Decimal  @map("line_total") @db.Decimal(12, 2)
+  specialNote String?  @map("special_note") @db.Text
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menu        Menu     @relation(fields: [menuId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([menuId])
+  @@map("order_items")
+}
+
+model Payment {
+  id          String        @id @default(uuid()) @db.Uuid
+  orderId     String        @unique @map("order_id") @db.Uuid
+  method      PaymentMethod
+  amount      Decimal       @db.Decimal(12, 2)
+  status      PaymentStatus @default(PENDING)
+  externalRef String?       @map("external_ref") @db.VarChar(120)
+  paidAt      DateTime?     @map("paid_at") @db.Timestamptz(6)
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  order       Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("payments")
+}
+
+model MenuPriceOverride {
+  id            String   @id @default(uuid()) @db.Uuid
+  branchId      String   @map("branch_id") @db.Uuid
+  menuId        String   @map("menu_id") @db.Uuid
+  overridePrice Decimal  @map("override_price") @db.Decimal(10, 2)
+  setById       String?  @map("set_by_id") @db.Uuid
+  reason        String?  @db.Text
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  branch        Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  menu          Menu     @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  setBy         User?    @relation("PriceOverrideSetBy", fields: [setById], references: [id], onDelete: SetNull)
+
+  @@unique([branchId, menuId])
+  @@index([menuId])
+  @@map("menu_price_overrides")
+}
+
+model DailyReportAggregate {
+  id             String       @id @default(uuid()) @db.Uuid
+  branchId       String       @map("branch_id") @db.Uuid
+  reportDate     DateTime     @map("report_date") @db.Date
+  totalOrders    Int          @default(0) @map("total_orders")
+  totalItemsSold Int          @default(0) @map("total_items_sold")
+  grossSales     Decimal      @default(0) @map("gross_sales") @db.Decimal(14, 2)
+  netSales       Decimal      @default(0) @map("net_sales") @db.Decimal(14, 2)
+  paymentCount   Int          @default(0) @map("payment_count")
+  source         ReportSource @default(REST_SYNC)
+  submittedAt    DateTime?    @map("submitted_at") @db.Timestamptz(6)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, reportDate])
+  @@index([reportDate])
+  @@map("daily_reports_aggregate")
+}
