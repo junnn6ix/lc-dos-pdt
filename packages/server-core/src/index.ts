@@ -527,6 +527,46 @@ export async function startNodeServer(
         }
       }
 
+      if (
+        requestUrl.pathname === "/db/global/menus/price" &&
+        (request.method ?? "GET") === "POST"
+      ) {
+        const body = await readJsonBody(request);
+        const menuId = asString(body.menuId);
+        const basePrice = asNumber(body.basePrice);
+
+        if (!menuId || basePrice === null) {
+          sendJson(response, 400, {
+            error: "menuId and basePrice are required.",
+          });
+          return;
+        }
+
+        const priceMaster = await prisma.menuPriceMaster.upsert({
+          where: {
+            menuId,
+          },
+          create: {
+            menuId,
+            basePrice,
+          },
+          update: {
+            basePrice,
+          },
+        });
+
+        if (redisClient) {
+          try {
+            await redisClient.del("lc:global:menus");
+          } catch (redisErr) {
+            console.error(`[${config.nodeName}] Redis delete error:`, redisErr);
+          }
+        }
+
+        sendJson(response, 200, { priceMaster });
+        return;
+      }
+
       if (requestUrl.pathname === "/db/local/tables") {
         const tables = await prisma.diningTable.findMany({
           where: {

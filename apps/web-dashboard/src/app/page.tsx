@@ -128,6 +128,7 @@ export default function Home() {
   // Fetch branch data
   const fetchBranchData = async (branch: string) => {
     const config = CONFIGS[branch];
+    if (!config) return;
     const url = `http://localhost:${config.port}`;
 
     try {
@@ -218,6 +219,7 @@ export default function Home() {
   const submitPriceOverride = async () => {
     if (!activeBranch || !modalMenu) return;
     const config = CONFIGS[activeBranch];
+    if (!config) return;
     const url = `http://localhost:${config.port}`;
 
     log(`[${activeBranch.toUpperCase()}] Saving price override for ${modalMenu.name} to Rp${overridePriceInput}...`);
@@ -247,6 +249,7 @@ export default function Home() {
   const removePriceOverride = async (menuId: string, name: string) => {
     if (!activeBranch) return;
     const config = CONFIGS[activeBranch];
+    if (!config) return;
     const url = `http://localhost:${config.port}`;
 
     log(`[${activeBranch.toUpperCase()}] Deleting price override for ${name}...`);
@@ -271,6 +274,7 @@ export default function Home() {
   const simulateCheckout = async () => {
     if (!activeBranch) return;
     const config = CONFIGS[activeBranch];
+    if (!config) return;
     const url = `http://localhost:${config.port}`;
 
     log(`[${activeBranch.toUpperCase()}] Fetching components to build order...`);
@@ -283,8 +287,9 @@ export default function Home() {
       const tableId = tables[0].id;
 
       // Select first menu id
-      if (branchMenus.length === 0) throw new Error("No menus found in this branch catalog.");
-      const menuId = branchMenus[0].id;
+      const firstMenu = branchMenus[0];
+      if (!firstMenu) throw new Error("No menus found in this branch catalog.");
+      const menuId = firstMenu.id;
 
       const orderPayload = {
         tableId,
@@ -324,6 +329,7 @@ export default function Home() {
   const simulatePayment = async (orderId: string, grandTotal: number) => {
     if (!activeBranch) return;
     const config = CONFIGS[activeBranch];
+    if (!config) return;
     const url = `http://localhost:${config.port}`;
 
     log(`[${activeBranch.toUpperCase()}] Requesting secure payment verification for Order ID: ${orderId}...`);
@@ -349,6 +355,7 @@ export default function Home() {
   const toggleDatabaseOutage = async () => {
     if (!activeBranch) return;
     const config = CONFIGS[activeBranch];
+    if (!config) return;
     const url = `http://localhost:${config.port}`;
 
     log(`[${activeBranch.toUpperCase()}] Toggling network database connection outage status...`, "warning");
@@ -366,6 +373,7 @@ export default function Home() {
   const triggerDailySync = async () => {
     if (!activeBranch) return;
     const config = CONFIGS[activeBranch];
+    if (!config) return;
     const url = `http://localhost:${config.port}`;
     const todayStr = new Date().toISOString().split("T")[0];
 
@@ -535,7 +543,7 @@ export default function Home() {
                     : "border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700 hover:text-slate-200"
                 }`}
               >
-                {slug.toUpperCase()} (Port {CONFIGS[slug].port})
+                {slug.toUpperCase()} (Port {CONFIGS[slug]?.port || ""})
               </button>
             ))}
           </div>
@@ -617,7 +625,7 @@ export default function Home() {
                     onClick={simulateCheckout} 
                     className="flex-1 text-xs bg-orange-500 hover:bg-orange-600 text-slate-950 font-bold px-3 py-2.5 rounded-lg transition"
                   >
-                    ⚡ Simulasikan Checkout (Table {CONFIGS[activeBranch].tableNum})
+                    ⚡ Simulasikan Checkout (Table {activeBranch ? CONFIGS[activeBranch]?.tableNum : ""})
                   </button>
                 </div>
                 <div className="flex gap-2">
@@ -757,7 +765,7 @@ export default function Home() {
                 <input 
                   type="number" 
                   value={overridePriceInput} 
-                  onChange={(e) => setOverridePriceInput(Number(e.target.value))}
+                  onChange={(e) => setOverridePriceInput(Number((e.target as HTMLInputElement).value))}
                   className="w-full bg-black border border-slate-800 focus:border-amber-500 px-3 py-2 rounded-lg text-slate-100 outline-none" 
                 />
               </div>
@@ -766,7 +774,7 @@ export default function Home() {
                 <input 
                   type="text" 
                   value={overrideReasonInput}
-                  onChange={(e) => setOverrideReasonInput(e.target.value)}
+                  onChange={(e) => setOverrideReasonInput((e.target as HTMLInputElement).value)}
                   placeholder="Biaya operasional lokal tinggi" 
                   className="w-full bg-black border border-slate-800 focus:border-amber-500 px-3 py-2 rounded-lg text-slate-100 outline-none" 
                 />
