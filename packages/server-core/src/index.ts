@@ -1,6 +1,7 @@
 import http from "node:http";
 import { URL } from "node:url";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import { Queue, Worker } from "bullmq";
 import { Redis } from "ioredis";
 import { Server as SocketIOServer } from "socket.io";
@@ -35,6 +36,9 @@ function sendJson(
 ) {
   response.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "access-control-allow-headers": "content-type, x-callback-signature, authorization",
   });
   response.end(JSON.stringify(body, null, 2));
 }
@@ -141,6 +145,7 @@ export async function startNodeServer(
   let redisClient: Redis | undefined;
   let io: SocketIOServer | undefined;
   let broadcastBranchEvent: (branchSlug: string, eventName: string, payload: unknown) => void = () => {};
+  let isDbOffline = false;
 
   if (config.redisUrl) {
     redisClient = new Redis(config.redisUrl);
@@ -388,6 +393,16 @@ export async function startNodeServer(
   };
 
   const server = http.createServer(async (request, response) => {
+    if ((request.method ?? "GET") === "OPTIONS") {
+      response.writeHead(204, {
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "access-control-allow-headers": "content-type, x-callback-signature, authorization",
+      });
+      response.end();
+      return;
+    }
+
     const requestUrl = new URL(
       request.url ?? "/",
       `http://${request.headers.host ?? "localhost"}`,
@@ -410,6 +425,20 @@ export async function startNodeServer(
         return;
       }
 
+      if (
+        (requestUrl.pathname === "/" || requestUrl.pathname === "/index.html") &&
+        (request.method ?? "GET") === "GET"
+      ) {
+        const htmlPath = new URL("./dashboard.html", import.meta.url);
+        const html = await fs.promises.readFile(htmlPath, "utf-8");
+        response.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+          "access-control-allow-origin": "*",
+        });
+        response.end(html);
+        return;
+      }
+
       if (requestUrl.pathname === "/meta/classification") {
         sendJson(response, 200, {
           globalTables: GLOBAL_TABLES,
@@ -420,6 +449,10 @@ export async function startNodeServer(
       }
 
       if (requestUrl.pathname === "/db/ping") {
+        if (isDbOffline) {
+          sendJson(response, 500, { error: "Simulated database outage." });
+          return;
+        }
         await prisma.$queryRaw`SELECT 1`;
         sendJson(response, 200, {
           ok: true,
@@ -433,7 +466,7 @@ export async function startNodeServer(
         const cacheKey = "lc:global:menus";
         const fallbackKey = "lc:global:menus:fallback";
 
-        if (redisClient) {
+        if (redisClient && !isDbOffline) {
           try {
             const cachedData = await redisClient.get(cacheKey);
             if (cachedData) {
@@ -447,6 +480,9 @@ export async function startNodeServer(
         }
 
         try {
+          if (isDbOffline) {
+            throw new Error("Simulated database outage.");
+          }
           const menus = await prisma.menu.findMany({
             orderBy: [{ name: "asc" }],
             include: {
@@ -689,6 +725,84 @@ export async function startNodeServer(
         });
 
         sendJson(response, 200, { ok: true, message: "Price override deleted." });
+        return;
+      }
+
+      if (
+        requestUrl.pathname === "/db/local/simulate-db-outage" &&
+        (request.method ?? "GET") === "POST"
+      ) {
+        isDbOffline = !isDbOffline;
+        sendJson(response, 200, { ok: true, isOffline: isDbOffline });
+        return;
+      }
+
+      if (
+        requestUrl.pathname === "/db/local/orders/all-recent" &&
+        (request.method ?? "GET") === "GET"
+      ) {
+        if (isDbOffline) {
+          sendJson(response, 500, { error: "Database offline (simulated)" });
+          return;
+        }
+        const orders = await prisma.order.findMany({
+          where: { branchId: await resolveBranchId() },
+          orderBy: { createdAt: "desc" },
+          take: 10,
+          include: {
+            items: {
+              include: {
+                menu: true,
+              },
+            },
+            payment: true,
+          },
+        });
+        sendJson(response, 200, { orders });
+        return;
+      }
+
+      if (
+        requestUrl.pathname === "/db/local/payments/simulate-webhook" &&
+        (request.method ?? "GET") === "POST"
+      ) {
+        const body = await readJsonBody(request);
+        const orderId = asString(body.orderId);
+        if (!orderId) {
+          sendJson(response, 400, { error: "orderId is required." });
+          return;
+        }
+
+        const paymentPayload = {
+          orderId,
+          status: "PAID",
+          externalRef: `VISUAL-REF-${Date.now()}`,
+        };
+        const rawBody = JSON.stringify(paymentPayload);
+        const secretKey = process.env.PAYMENT_WEBHOOK_SECRET || "lc_secret_key";
+        const signature = crypto
+          .createHmac("sha512", secretKey)
+          .update(rawBody)
+          .digest("hex");
+
+        const branchPort = config.port;
+        const webhookRes = await fetch(`http://localhost:${branchPort}/api/webhooks/payment`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-callback-signature": signature,
+          },
+          body: rawBody,
+        });
+
+        if (!webhookRes.ok) {
+          const errMsg = await webhookRes.text();
+          sendJson(response, 500, { error: `Webhook simulation failed: ${errMsg}` });
+          return;
+        }
+
+        const webhookData = await webhookRes.json();
+        sendJson(response, 200, webhookData as JsonResponse);
         return;
       }
 

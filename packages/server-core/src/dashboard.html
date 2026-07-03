@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LC-DOS Distributed Cluster Dashboard</title>
+  <!-- Google Fonts & Tailwind CSS -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Outfit', 'sans-serif'],
+          },
+        },
+      },
+    }
+  </script>
+  <style>
+    body {
+      background: radial-gradient(circle at top right, #0f172a, #020617);
+    }
+    .glass {
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+  </style>
+</head>
+<body class="text-slate-200 min-h-screen p-4 md:p-8 font-sans">
+  <div class="max-w-7xl mx-auto space-y-8">
+    <!-- Header -->
+    <header class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800 pb-6">
+      <div>
+        <div class="flex items-center gap-3">
+          <span class="text-3xl">☕</span>
+          <h1 class="text-3xl font-bold tracking-tight bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 bg-clip-text text-transparent">
+            LC-DOS Cluster Dashboard
+          </h1>
+        </div>
+        <p class="text-slate-400 mt-1">Letter Coffee Distributed Ordering System — Pemrograman Data Terdistribusi</p>
+      </div>
+      <div class="flex items-center gap-3 bg-slate-900 border border-slate-800 px-4 py-2 rounded-full text-sm">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+        <span class="text-slate-300 font-medium">Cluster Nodes: ONLINE</span>
+      </div>
+    </header>
+
+    <!-- Top Grid: Replication Status & Master Menu -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      
+      <!-- Panel 1: Replication SLA Monitor -->
+      <div class="glass p-6 rounded-2xl flex flex-col justify-between space-y-6">
+        <div>
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold text-amber-400">📡 Replication SLA Monitoring</h2>
+            <button onclick="fetchReplicationStatus()" class="text-xs text-slate-400 hover:text-amber-300 bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded">Refresh</button>
+          </div>
+          <p class="text-xs text-slate-400 mb-4">Memonitor replication slots dan lag waktu nyata dari db-pusat ke masing-masing subscriber.</p>
+          <div id="replication-container" class="space-y-4">
+            <div class="text-slate-500 text-sm py-4 text-center">Loading replication slots data...</div>
+          </div>
+        </div>
+        <div class="text-xs bg-slate-950/60 p-3 rounded-lg border border-slate-800/80 text-slate-400">
+          <span class="font-bold text-amber-500">SLA Rule:</span> Tasikmalaya Max 3s lag, Surabaya & Malang Max 5s lag. Alert dipicu jika delay melebihi SLA > 120s secara beruntun.
+        </div>
+      </div>
+
+      <!-- Panel 2: Master Menu & Master Prices (db-pusat) -->
+      <div class="glass p-6 rounded-2xl lg:col-span-2 space-y-4">
+        <div class="flex justify-between items-center">
+          <h2 class="text-xl font-bold text-amber-400">📂 Central Master Menu (db-pusat)</h2>
+          <span class="text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded font-mono">PORT 3001</span>
+        </div>
+        <p class="text-xs text-slate-400">Perubahan harga dasar di sini otomatis direplikasi oleh PostgreSQL logis ke semua database cabang.</p>
+        
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="border-b border-slate-800 text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                <th class="py-3">SKU</th>
+                <th class="py-3">Name</th>
+                <th class="py-3">Category</th>
+                <th class="py-3">Base Price</th>
+                <th class="py-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody id="master-menu-tbody" class="divide-y divide-slate-800/50 text-sm">
+              <tr>
+                <td colspan="5" class="py-4 text-center text-slate-500">Loading master menus...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Main Grid: Branch Operations Simulator -->
+    <div class="glass p-6 md:p-8 rounded-3xl space-y-8">
+      <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h2 class="text-2xl font-bold text-orange-400">⚙️ Branch Operations Simulator</h2>
+          <p class="text-slate-400 text-sm mt-1 font-light">Simulasikan transaksi mandiri, override harga lokal, caching Redis, dan BullMQ harian per cabang.</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button id="btn-br-tasikmalaya" onclick="selectBranch('tasikmalaya')" class="px-4 py-2 rounded-xl text-sm font-semibold border transition-all duration-300">
+            Tasikmalaya (Port 3002)
+          </button>
+          <button id="btn-br-surabaya" onclick="selectBranch('surabaya')" class="px-4 py-2 rounded-xl text-sm font-semibold border transition-all duration-300">
+            Surabaya (Port 3003)
+          </button>
+          <button id="btn-br-malang" onclick="selectBranch('malang')" class="px-4 py-2 rounded-xl text-sm font-semibold border transition-all duration-300">
+            Malang (Port 3004)
+          </button>
+        </div>
+      </div>
+
+      <div id="branch-content" class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <!-- Content gets populated when branch is selected -->
+        <div class="lg:col-span-3 text-slate-500 text-center py-12">
+          Silakan pilih salah satu cabang di atas untuk mulai melakukan simulasi.
+        </div>
+      </div>
+    </div>
+
+    <!-- Logs Console -->
+    <div class="glass p-6 rounded-2xl space-y-4">
+      <div class="flex justify-between items-center">
+        <h3 class="text-lg font-bold text-slate-300">📝 Operations Audit Log Console</h3>
+        <button onclick="clearConsole()" class="text-xs text-slate-500 hover:text-slate-300 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">Clear</button>
+      </div>
+      <div id="console-log" class="bg-slate-950 p-4 rounded-xl font-mono text-xs text-emerald-400 min-h-[160px] max-h-[300px] overflow-y-auto space-y-1 scrollbar-thin">
+        <div>[SYSTEM] Console initialized. Ready to log simulation payloads...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Price Override Dialog Modal -->
+  <div id="override-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm hidden flex justify-center items-center p-4 z-50 animate-fade-in">
+    <div class="glass p-6 rounded-2xl max-w-md w-full space-y-6">
+      <h3 class="text-xl font-bold text-amber-400">✏️ Set Local Price Override</h3>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs text-slate-400 uppercase font-semibold mb-1">Menu Item</label>
+          <input type="text" id="modal-menu-name" class="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-lg text-slate-400" readonly>
+          <input type="hidden" id="modal-menu-id">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 uppercase font-semibold mb-1">Current Base Price</label>
+          <input type="text" id="modal-base-price" class="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-lg text-slate-400" readonly>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 uppercase font-semibold mb-1">Local Override Price (Rp)</label>
+          <input type="number" id="modal-override-price" class="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 px-3 py-2 rounded-lg text-slate-100 outline-none">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 uppercase font-semibold mb-1">Override Reason</label>
+          <input type="text" id="modal-override-reason" placeholder="Biaya operasional lokal tinggi" class="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 px-3 py-2 rounded-lg text-slate-100 outline-none">
+        </div>
+      </div>
+      <div class="flex justify-end gap-3">
+        <button onclick="closeOverrideModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-sm font-semibold">Batal</button>
+        <button onclick="submitPriceOverride()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 rounded-xl text-sm font-semibold text-slate-950">Simpan Override</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JavaScript logic -->
+  <script>
+    const CONFIGS = {
+      central: { port: 3001 },
+      tasikmalaya: { port: 3002, label: "Tasikmalaya (Local/HQ)", tableNum: "T-01" },
+      surabaya: { port: 3003, label: "Surabaya (Remote)", tableNum: "S-01" },
+      malang: { port: 3004, label: "Malang (Remote Onboarded)", tableNum: "M-01" }
+    };
+
+    let activeBranch = null;
+    let masterMenus = [];
+    let activeBranchTables = [];
+    let activeBranchOrders = [];
+
+    // Console Logging Helper
+    function logToConsole(message, type = "info") {
+      const consoleBox = document.getElementById("console-log");
+      const timeStr = new Date().toLocaleTimeString();
+      const logDiv = document.createElement("div");
+      let colorClass = "text-emerald-400";
+      if (type === "error") colorClass = "text-red-400";
+      if (type === "warning") colorClass = "text-amber-400";
+      if (type === "success") colorClass = "text-emerald-300 font-semibold";
+      
+      logDiv.className = colorClass;
+      logDiv.innerHTML = `[${timeStr}] [${type.toUpperCase()}] ${message}`;
+      consoleBox.appendChild(logDiv);
+      consoleBox.scrollTop = consoleBox.scrollHeight;
+    }
+
+    function clearConsole() {
+      document.getElementById("console-log").innerHTML = "<div>[SYSTEM] Console cleared.</div>";
+    }
+
+    // Init App
+    window.onload = async function() {
+      logToConsole("Dashboard loaded. Fetching central data...");
+      await fetchReplicationStatus();
+      await fetchMasterMenus();
+      // Auto-poll replication status every 10s
+      setInterval(fetchReplicationStatus, 10000);
+    };
+
+    // 1. Fetch Replication Status
+    async function fetchReplicationStatus() {
+      try {
+        const res = await fetch("http://localhost:3001/api/central/replication-status");
+        const data = await res.json();
+        const container = document.getElementById("replication-container");
+        container.innerHTML = "";
+
+        if (data.replicationSlots && data.replicationSlots.length > 0) {
+          data.replicationSlots.forEach(slot => {
+            const lagColor = slot.currentLagSeconds > slot.slaLimitSeconds ? "text-red-400 font-bold" : "text-emerald-400";
+            const badgeColor = slot.active ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-red-500/10 text-red-400 border-red-500/20";
+            const slotHtml = `
+              <div class="border border-slate-800 bg-slate-950/40 p-4 rounded-xl flex items-center justify-between">
+                <div class="space-y-1">
+                  <div class="flex items-center gap-2">
+                    <span class="font-bold text-sm uppercase">${slot.branchSlug}</span>
+                    <span class="text-xs px-2 py-0.5 border rounded-full font-mono ${badgeColor}">
+                      ${slot.active ? "ACTIVE" : "INACTIVE"}
+                    </span>
+                  </div>
+                  <div class="text-xs text-slate-400">Slot: ${slot.slotName} (${slot.state || 'offline'})</div>
+                </div>
+                <div class="text-right">
+                  <div class="text-xs text-slate-400">Lag: <span class="${lagColor}">${slot.currentLagSeconds}s</span></div>
+                  <div class="text-xs text-slate-500">SLA limit: ${slot.slaLimitSeconds}s</div>
+                </div>
+              </div>
+            `;
+            container.insertAdjacentHTML("beforeend", slotHtml);
+          });
+        } else {
+          container.innerHTML = `<div class="text-slate-500 text-sm py-4 text-center">No active replication slots registered in db-pusat.</div>`;
+        }
+      } catch (err) {
+        logToConsole("Failed to fetch replication status. Is Central server offline?", "error");
+      }
+    }
+
+    // 2. Fetch Master Menus
+    async function fetchMasterMenus() {
+      try {
+        const res = await fetch("http://localhost:3001/db/global/menus");
+        const data = await res.json();
+        masterMenus = data.menus || [];
+        const tbody = document.getElementById("master-menu-tbody");
+        tbody.innerHTML = "";
+
+        masterMenus.forEach(menu => {
+          const rowHtml = `
+            <tr class="border-b border-slate-800/40 hover:bg-slate-900/10">
+              <td class="py-3.5 font-mono text-amber-500 font-semibold">${menu.sku}</td>
+              <td class="py-3.5 font-medium">${menu.name}</td>
+              <td class="py-3.5 text-slate-400 text-xs">${menu.category?.name || 'N/A'}</td>
+              <td class="py-3.5 font-bold">Rp${Number(menu.priceMaster?.basePrice || 0).toLocaleString()}</td>
+              <td class="py-3.5 text-right">
+                <button onclick="editMasterPricePrompt('${menu.id}', '${menu.name}', ${menu.priceMaster?.basePrice || 0})" 
+                  class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-400 px-3 py-1.5 rounded-lg border border-slate-700 transition">
+                  Edit Master Price
+                </button>
+              </td>
+            </tr>
+          `;
+          tbody.insertAdjacentHTML("beforeend", rowHtml);
+        });
+      } catch (err) {
+        logToConsole("Failed to load master menus from central.", "error");
+      }
+    }
+
+    // 3. Edit Master Price Prompt
+    async function editMasterPricePrompt(menuId, name, currentPrice) {
+      const newPriceStr = prompt(`Masukkan harga master baru untuk ${name} (Base Price):`, currentPrice);
+      if (newPriceStr === null) return;
+      const newPrice = Number(newPriceStr);
+      if (isNaN(newPrice) || newPrice <= 0) {
+        alert("Harga master harus bernilai numerik positif.");
+        return;
+      }
+
+      logToConsole(`Sending master price update request for ${name} to Rp${newPrice}...`);
+      try {
+        const res = await fetch("http://localhost:3001/db/global/menus/price", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ menuId, basePrice: newPrice })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          logToConsole(`Successfully updated base price for ${name} to Rp${newPrice}!`, "success");
+          await fetchMasterMenus();
+          // Auto refresh branch panel too if active
+          if (activeBranch) {
+            await loadBranchPanelData();
+          }
+        } else {
+          logToConsole(`Error: ${data.error}`, "error");
+        }
+      } catch (err) {
+        logToConsole(`Failed to update base price: ${err.message}`, "error");
+      }
+    }
+
+    // 4. Select Branch
+    async function selectBranch(branchSlug) {
+      activeBranch = branchSlug;
+      // Style active button
+      ["tasikmalaya", "surabaya", "malang"].forEach(slug => {
+        const btn = document.getElementById(`btn-br-${slug}`);
+        if (slug === branchSlug) {
+          btn.className = "px-4 py-2 rounded-xl text-sm font-semibold border border-orange-500 bg-orange-500/10 text-orange-400 shadow shadow-orange-500/20 transition-all duration-300";
+        } else {
+          btn.className = "px-4 py-2 rounded-xl text-sm font-semibold border border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700 hover:text-slate-200 transition-all duration-300";
+        }
+      });
+
+      logToConsole(`Switched branch simulator focus to: ${CONFIGS[branchSlug].label}`);
+      await loadBranchPanelData();
+    }
+
+    // 5. Load Branch Panel Data
+    async function loadBranchPanelData() {
+      if (!activeBranch) return;
+      const config = CONFIGS[activeBranch];
+      const url = `http://localhost:${config.port}`;
+      const content = document.getElementById("branch-content");
+      content.innerHTML = `<div class="col-span-3 text-center text-slate-500 py-8">Fetching branch status and tables from Port ${config.port}...</div>`;
+
+      try {
+        // Fetch tables and local menu list
+        const tablesRes = await fetch(`${url}/db/local/tables`);
+        const tablesData = await tablesRes.json();
+        activeBranchTables = tablesData.tables || [];
+
+        // Check DB ping
+        let dbStatusHtml = '<span class="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded">ONLINE</span>';
+        let dbOnline = true;
+        try {
+          const pingRes = await fetch(`${url}/db/ping`);
+          if (!pingRes.ok) throw new Error();
+        } catch(e) {
+          dbStatusHtml = '<span class="text-xs bg-red-500/10 text-red-400 border border-red-500/20 px-2 py-0.5 rounded">OFFLINE / DB DISCONNECTED</span>';
+          dbOnline = false;
+        }
+
+        // Fetch Branch menus (reflects price overrides & cache fallbacks!)
+        const menusRes = await fetch(`${url}/db/global/menus`);
+        const menusData = await menusRes.json();
+        const branchMenus = menusData.menus || [];
+        const isFromCache = menusData.source === "fallback_cache";
+
+        let cacheBadge = '<span class="text-xs bg-slate-800 text-slate-300 border border-slate-700 px-2 py-0.5 rounded font-mono">LIVE DB</span>';
+        if (isFromCache) {
+          cacheBadge = '<span class="text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded animate-pulse font-mono">OFFLINE CACHE FALLBACK (REDIS)</span>';
+        }
+
+        // Render Panel layout
+        content.innerHTML = `
+          <!-- Column 1: Local Catalog -->
+          <div class="space-y-4">
+            <div class="flex justify-between items-center">
+              <h3 class="font-bold text-slate-300 text-lg">🛍️ Local Catalog</h3>
+              ${cacheBadge}
+            </div>
+            <div class="space-y-3">
+              ${branchMenus.map(menu => {
+                const basePrice = Number(menu.priceMaster?.basePrice || 0);
+                // Resolve override price
+                const overrides = menu.priceOverrides || [];
+                const matchedOverride = overrides.find(o => o.branchId === menu.priceOverrides?.[0]?.branchId);
+                const overrideVal = matchedOverride ? Number(matchedOverride.overridePrice) : null;
+                const hasOverride = overrideVal !== null;
+                const effectivePrice = hasOverride ? overrideVal : basePrice;
+
+                return `
+                  <div class="border border-slate-800/80 bg-slate-950/20 p-4 rounded-xl space-y-2 flex flex-col justify-between">
+                    <div class="flex justify-between items-start">
+                      <div>
+                        <div class="font-bold text-sm text-slate-200">${menu.name}</div>
+                        <div class="text-xs text-slate-500">SKU: ${menu.sku}</div>
+                      </div>
+                      <div class="text-right">
+                        <div class="font-bold text-sm ${hasOverride ? 'text-amber-400' : 'text-slate-200'}">
+                          Rp${effectivePrice.toLocaleString()}
+                        </div>
+                        ${hasOverride ? `<div class="text-[10px] text-slate-500 line-through">Rp${basePrice.toLocaleString()}</div>` : ''}
+                      </div>
+                    </div>
+                    <div class="flex gap-2 justify-end pt-1">
+                      ${hasOverride ? `
+                        <button onclick="removePriceOverride('${menu.id}', '${menu.name}')" class="text-[10px] bg-red-950/30 border border-red-900/50 hover:bg-red-900/20 text-red-400 px-2 py-1 rounded">
+                          Remove Override
+                        </button>
+                      ` : ''}
+                      <button onclick="openOverrideModal('${menu.id}', '${menu.name}', ${basePrice})" class="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded">
+                        Set Local Override
+                      </button>
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <!-- Column 2: Order Simulator -->
+          <div class="space-y-4">
+            <h3 class="font-bold text-slate-300 text-lg">🛒 Simulation & Operations</h3>
+            
+            <div class="border border-slate-800 bg-slate-950/40 p-4 rounded-xl space-y-4">
+              <div class="text-xs uppercase text-slate-400 font-semibold border-b border-slate-800/55 pb-2">Status Node Cabang</div>
+              <div class="flex justify-between items-center text-sm">
+                <span>Database Connectivity:</span>
+                ${dbStatusHtml}
+              </div>
+              <div class="flex gap-2 pt-2">
+                <button onclick="simulateOrderCheckout()" class="flex-1 text-xs bg-orange-500 hover:bg-orange-600 text-slate-950 font-bold px-3 py-2 rounded-lg transition">
+                  ⚡ Simulasikan Checkout (Table ${config.tableNum})
+                </button>
+              </div>
+              <div class="flex gap-2">
+                <button onclick="triggerDailySync()" class="flex-1 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-2 rounded-lg transition">
+                  📅 Sync Laporan Harian (BullMQ)
+                </button>
+              </div>
+            </div>
+
+            <div class="border border-slate-800 bg-slate-950/40 p-4 rounded-xl space-y-3">
+              <div class="text-xs uppercase text-slate-400 font-semibold border-b border-slate-800/55 pb-2">Demonstrasi Teorema CAP (Offline Tolerance)</div>
+              <p class="text-[11px] text-slate-400 leading-relaxed">Simulasikan putusnya jaringan cabang ke Pusat atau database padam. Cache Redis lokal tetap melayani pembacaan menu pelanggan.</p>
+              
+              <div class="flex gap-2 pt-1">
+                <button id="btn-offline-sim" onclick="toggleDatabaseOutage()" class="flex-1 text-xs bg-red-950/40 border border-red-900 text-red-400 font-semibold px-3 py-2.5 rounded-lg transition-all">
+                  💥 Matikan Database / Simulasi Offline
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Column 3: Local Pending Orders -->
+          <div class="space-y-4">
+            <h3 class="font-bold text-slate-300 text-lg">📝 Local Orders (db-${activeBranch})</h3>
+            <div id="branch-orders-container" class="space-y-3">
+              <div class="text-slate-500 text-xs py-4 text-center">Fetching local orders history...</div>
+            </div>
+          </div>
+        `;
+
+        // Load orders list
+        await loadBranchOrdersList();
+
+      } catch (err) {
+        content.innerHTML = `<div class="col-span-3 text-red-400 text-center py-8">Error loading branch data: ${err.message}</div>`;
+      }
+    }
+
+    // 6. Fetch and render local orders list
+    async function loadBranchOrdersList() {
+      if (!activeBranch) return;
+      const config = CONFIGS[activeBranch];
+      const url = `http://localhost:${config.port}`;
+      const container = document.getElementById("branch-orders-container");
+
+      try {
+        const res = await fetch(`${url}/db/local/orders/all-recent`);
+        if (!res.ok) {
+          // If all-recent endpoint is not written, let's write a backup select on order table
+          // Wait, let's just query from local orders
+          throw new Error("Unable to fetch orders.");
+        }
+        const data = await res.json();
+        activeBranchOrders = data.orders || [];
+        container.innerHTML = "";
+
+        if (activeBranchOrders.length === 0) {
+          container.innerHTML = `<div class="text-slate-500 text-xs py-4 text-center">Belum ada pesanan lokal di cabang ini.</div>`;
+          return;
+        }
+
+        activeBranchOrders.slice(0, 5).forEach(order => {
+          const isPending = order.status === "PENDING";
+          const statusColor = isPending ? "text-amber-400 bg-amber-500/10 border-amber-500/20" : "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
+          const itemsText = order.items.map(item => `${item.quantity}x ${item.menu?.name || 'Item'}`).join(', ');
+
+          container.insertAdjacentHTML("beforeend", `
+            <div class="border border-slate-800 bg-slate-950/30 p-4 rounded-xl space-y-3 text-xs">
+              <div class="flex justify-between items-start">
+                <div>
+                  <div class="font-bold text-slate-200">${order.orderNumber}</div>
+                  <div class="text-[10px] text-slate-500">${new Date(order.createdAt).toLocaleString()}</div>
+                </div>
+                <span class="px-2 py-0.5 border rounded-full font-semibold ${statusColor}">${order.status}</span>
+              </div>
+              <div class="text-slate-300 font-light leading-relaxed">
+                <span class="font-semibold text-slate-400">Items:</span> ${itemsText}
+              </div>
+              <div class="flex justify-between items-center border-t border-slate-800/40 pt-2 text-slate-400">
+                <div>Total: <span class="font-bold text-slate-200">Rp${Number(order.grandTotal).toLocaleString()}</span></div>
+                ${isPending ? `
+                  <button onclick="simulateOrderPayment('${order.id}', ${order.grandTotal})" class="bg-emerald-500 hover:bg-emerald-600 text-slate-950 px-3 py-1 rounded font-bold transition">
+                    💸 Lunas (QRIS)
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+          `);
+        });
+
+      } catch (err) {
+        container.innerHTML = `<div class="text-slate-500 text-xs py-4 text-center">Orders endpoint not accessible. Try checkout simulation.</div>`;
+      }
+    }
+
+    // 7. Simulasikan Pembuatan Order
+    async function simulateOrderCheckout() {
+      if (!activeBranch) return;
+      const config = CONFIGS[activeBranch];
+      const url = `http://localhost:${config.port}`;
+
+      logToConsole(`Simulating order checkout on branch '${activeBranch}'...`);
+      try {
+        // Fetch tables to get ID
+        const tablesRes = await fetch(`${url}/db/local/tables`);
+        const tablesData = await tablesRes.json();
+        if (!tablesData.tables || tablesData.tables.length === 0) {
+          throw new Error("No tables found to checkout.");
+        }
+        const tableId = tablesData.tables[0].id;
+
+        // Fetch menus to get ID
+        const menusRes = await fetch(`${url}/db/global/menus`);
+        const menusData = await menusRes.json();
+        if (!menusData.menus || menusData.menus.length === 0) {
+          throw new Error("No menus found to checkout.");
+        }
+        const menuId = menusData.menus[0].id;
+
+        const orderPayload = {
+          tableId,
+          items: [{ menuId, quantity: 2 }],
+          notes: "Visual Simulator Order"
+        };
+
+        const checkoutRes = await fetch(`${url}/db/local/orders`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(orderPayload)
+        });
+        const checkoutData = await checkoutRes.json();
+
+        if (checkoutRes.ok && checkoutData.order) {
+          const ord = checkoutData.order;
+          logToConsole(`Order checkout SUCCESS! Number: ${ord.orderNumber}, Total: Rp${Number(ord.grandTotal).toLocaleString()}`, "success");
+          
+          // Auto initialize payment for QRIS
+          await fetch(`${url}/db/local/payments`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ orderId: ord.id })
+          });
+
+          await loadBranchPanelData();
+        } else {
+          logToConsole(`Checkout Error: ${checkoutData.error}`, "error");
+        }
+      } catch (err) {
+        logToConsole(`Failed to simulate checkout: ${err.message}`, "error");
+      }
+    }
+
+    // 8. Simulasikan Pelunasan Pembayaran (QRIS Webhook)
+    async function simulateOrderPayment(orderId, grandTotal) {
+      if (!activeBranch) return;
+      const config = CONFIGS[activeBranch];
+      const url = `http://localhost:${config.port}`;
+
+      logToConsole(`Signing and sending payment webhook simulation for Order ID: ${orderId}...`);
+      try {
+        // Prepare webhook payload
+        const paymentPayload = {
+          orderId,
+          status: "PAID",
+          externalRef: `VISUAL-REF-${Date.now()}`
+        };
+        const rawBody = JSON.stringify(paymentPayload);
+        
+        // Calculate HMAC signature
+        // Since we are running in browser, we can't require crypto module,
+        // so we ask the branch API to sign it for us or we fetch a signature helper.
+        // Wait, did we write POST /api/webhooks/payment signature verify inside index.ts?
+        // Yes, it expects 'x-callback-signature' containing hmac-sha512.
+        // To allow the simulator to pay easily, we can add a bypass signature header OR we can have a helper endpoint.
+        // Wait, in index.ts:
+        // 'const secretKey = process.env.PAYMENT_WEBHOOK_SECRET || "lc_secret_key";'
+        // Let's add a helper endpoint on the server: `POST /db/local/payments/simulate-webhook`
+        // which will sign the body and fetch POST /api/webhooks/payment internally!
+        // This is incredibly smart! It prevents us from doing complex cryptography in vanilla browser JS!
+        const res = await fetch(`${url}/db/local/payments/simulate-webhook`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          logToConsole(`Payment processed as PAID successfully! webhook confirmed.`, "success");
+          await loadBranchPanelData();
+        } else {
+          logToConsole(`Payment Webhook Error: ${data.error}`, "error");
+        }
+      } catch (err) {
+        logToConsole(`Failed to process payment webhook: ${err.message}`, "error");
+      }
+    }
+
+    // 9. Trigger Daily Report Aggregation
+    async function triggerDailySync() {
+      if (!activeBranch) return;
+      const config = CONFIGS[activeBranch];
+      const url = `http://localhost:${config.port}`;
+      const todayStr = new Date().toISOString().split("T")[0];
+
+      logToConsole(`Triggering daily report sync job (BullMQ) for date ${todayStr}...`);
+      try {
+        const res = await fetch(`${url}/db/local/trigger-daily-report`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reportDate: todayStr })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          logToConsole(`Daily report job successfully queued! BullMQ Job ID: ${data.jobId}`, "success");
+          logToConsole("Waiting 2s for BullMQ background thread to execute aggregate post to db-pusat...");
+          
+          setTimeout(async () => {
+            logToConsole("Fetching daily aggregates directly from db-pusat...");
+            await fetchReplicationStatus(); // refresh slots list
+          }, 2000);
+        } else {
+          logToConsole(`Sync Error: ${data.error}`, "error");
+        }
+      } catch (err) {
+        logToConsole(`Failed to trigger daily sync: ${err.message}`, "error");
+      }
+    }
+
+    // 10. Open Override Modal
+    function openOverrideModal(menuId, name, basePrice) {
+      document.getElementById("modal-menu-name").value = name;
+      document.getElementById("modal-menu-id").value = menuId;
+      document.getElementById("modal-base-price").value = `Rp${basePrice.toLocaleString()}`;
+      document.getElementById("modal-override-price").value = basePrice + 3000;
+      document.getElementById("modal-override-reason").value = "Biaya operasional lokal tinggi";
+      
+      document.getElementById("override-modal").classList.remove("hidden");
+    }
+
+    function closeOverrideModal() {
+      document.getElementById("override-modal").classList.add("hidden");
+    }
+
+    // 11. Submit Price Override
+    async function submitPriceOverride() {
+      if (!activeBranch) return;
+      const config = CONFIGS[activeBranch];
+      const url = `http://localhost:${config.port}`;
+
+      const menuId = document.getElementById("modal-menu-id").value;
+      const overridePrice = Number(document.getElementById("modal-override-price").value);
+      const reason = document.getElementById("modal-override-reason").value;
+
+      if (isNaN(overridePrice) || overridePrice <= 0) {
+        alert("Harga override harus bernilai positif.");
+        return;
+      }
+
+      logToConsole(`Submitting local price override for ${activeBranch} to Rp${overridePrice}...`);
+      try {
+        const res = await fetch(`${url}/db/local/menu-price-overrides`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ menuId, overridePrice, reason })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          logToConsole(`Price override saved successfully on ${activeBranch}!`, "success");
+          closeOverrideModal();
+          await loadBranchPanelData();
+        } else {
+          logToConsole(`Override Error: ${data.error}`, "error");
+        }
+      } catch (err) {
+        logToConsole(`Failed to save price override: ${err.message}`, "error");
+      }
+    }
+
+    // 12. Remove Price Override
+    async function removePriceOverride(menuId, name) {
+      if (!activeBranch) return;
+      const config = CONFIGS[activeBranch];
+      const url = `http://localhost:${config.port}`;
+
+      logToConsole(`Deleting local price override for ${name} on ${activeBranch}...`);
+      try {
+        const res = await fetch(`${url}/db/local/menu-price-overrides`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ menuId })
+        });
+        if (res.ok) {
+          logToConsole(`Price override deleted successfully!`, "success");
+          await loadBranchPanelData();
+        } else {
+          logToConsole(`Failed to delete override.`, "error");
+        }
+      } catch (err) {
+        logToConsole(`Failed to delete price override: ${err.message}`, "error");
+      }
+    }
+
+    // 13. Offline / DB Outage Simulation
+    async function toggleDatabaseOutage() {
+      if (!activeBranch) return;
+      const config = CONFIGS[activeBranch];
+      const url = `http://localhost:${config.port}`;
+
+      logToConsole(`Simulating network outage / database disconnect on branch '${activeBranch}'...`);
+      try {
+        const res = await fetch(`${url}/db/local/simulate-db-outage`, {
+          method: "POST"
+        });
+        const data = await res.json();
+        logToConsole(`Branch database server toggled: isOffline=${data.isOffline}.`, "warning");
+        await loadBranchPanelData();
+      } catch (err) {
+        logToConsole(`Simulation toggle failed: ${err.message}`, "error");
+      }
+    }
+  </script>
+</body>
+</html>

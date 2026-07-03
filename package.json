@@ -16,6 +16,7 @@
     "dev:api-tasikmalaya": "tsx apps/api-tasikmalaya/src/main.ts",
     "dev:api-surabaya": "tsx apps/api-surabaya/src/main.ts",
     "dev:api-malang": "tsx apps/api-malang/src/main.ts",
+    "dev:web-dashboard": "pnpm --filter web-dashboard dev",
     "prisma:generate": "prisma generate --schema packages/shared/prisma/schema.prisma",
     "prisma:migrate": "prisma migrate deploy --schema packages/shared/prisma/schema.prisma",
     "typecheck": "tsc -p tsconfig.base.json --noEmit"
